@@ -1,0 +1,73 @@
+{
+  "realm": "zero-trust",
+  "enabled": true,
+  "displayName": "Zero Trust Lab",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 900,
+  "ssoSessionMaxLifespan": 3600,
+  "roles": {
+    "realm": [
+      {"name": "employee", "description": "General employee"},
+      {"name": "developer", "description": "Developer resource access"},
+      {"name": "admin", "description": "Administrative access"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "zero-trust-cli",
+      "name": "Zero Trust Lab CLI",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "name": "zero-trust-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "zero-trust-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Developer",
+      "email": "alice@example.test",
+      "realmRoles": ["employee", "developer"],
+      "credentials": [
+        {"type": "password", "value": "${ALICE_PASSWORD}", "temporary": false}
+      ]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Employee",
+      "email": "bob@example.test",
+      "realmRoles": ["employee"],
+      "credentials": [
+        {"type": "password", "value": "${BOB_PASSWORD}", "temporary": false}
+      ]
+    }
+  ]
+}

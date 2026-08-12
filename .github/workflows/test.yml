@@ -1,0 +1,62 @@
+name: Validate lab
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Compose model
+        run: docker compose --env-file .env.example config --quiet
+
+      - name: Run OPA policy tests
+        run: |
+          docker run --rm \
+            -v "$PWD/opa/policies:/policies:ro" \
+            openpolicyagent/opa:1.19.0 \
+            test /policies
+
+      - name: Compile Python sources
+        run: python -m py_compile pep/app.py pep/demo_app.py
+
+      - name: Build application images
+        run: docker compose --env-file .env.example build pep protected-app
+
+      - name: Start the complete lab
+        run: |
+          cp .env.example .env
+          docker compose up --build -d
+
+      - name: Wait for identity and enforcement endpoints
+        timeout-minutes: 12
+        run: |
+          for attempt in $(seq 1 180); do
+            if curl --fail --silent http://localhost:8080/realms/zero-trust/.well-known/openid-configuration >/dev/null \
+              && curl --fail --silent http://localhost:8081/healthz >/dev/null; then
+              exit 0
+            fi
+            sleep 3
+          done
+          docker compose logs
+          exit 1
+
+      - name: Run all access scenarios
+        shell: pwsh
+        run: ./scripts/test-access.ps1
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop the lab
+        if: always()
+        run: docker compose down --volumes

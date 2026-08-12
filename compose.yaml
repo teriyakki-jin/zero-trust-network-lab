@@ -1,0 +1,106 @@
+name: zero-trust-network-lab
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:?Set KEYCLOAK_ADMIN in .env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in .env}
+      ALICE_PASSWORD: ${ALICE_PASSWORD:?Set ALICE_PASSWORD in .env}
+      BOB_PASSWORD: ${BOB_PASSWORD:?Set BOB_PASSWORD in .env}
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/zero-trust-realm.json:/opt/keycloak/data/import/zero-trust-realm.json:ro
+      - keycloak-data:/opt/keycloak/data
+    ports:
+      - "127.0.0.1:${KEYCLOAK_HOST_PORT:-8080}:8080"
+    networks:
+      - control-plane
+    mem_limit: 1g
+    restart: unless-stopped
+
+  opa:
+    image: openpolicyagent/opa:1.19.0
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - --log-format=json
+      - --set=decision_logs.console=true
+      - /policies/access.rego
+    volumes:
+      - ./opa/policies/access.rego:/policies/access.rego:ro
+      - ./opa/policies/access_test.rego:/tests/access_test.rego:ro
+    expose:
+      - "8181"
+    networks:
+      - control-plane
+    restart: unless-stopped
+
+  protected-app:
+    build:
+      context: ./pep
+    command: ["uvicorn", "demo_app:app", "--host", "0.0.0.0", "--port", "8080"]
+    expose:
+      - "8080"
+    networks:
+      - data-plane
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  pep:
+    build:
+      context: ./pep
+    environment:
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://localhost:8080/realms/zero-trust}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-zero-trust-api}
+      OIDC_JWKS_URL: http://keycloak:8080/realms/zero-trust/protocol/openid-connect/certs
+      OPA_DECISION_URL: http://opa:8181/v1/data/zerotrust/access/decision
+      UPSTREAM_URL: http://protected-app:8080
+      POSTURE_MODE: simulation
+      MAX_BODY_BYTES: "1048576"
+    ports:
+      - "127.0.0.1:${PEP_HOST_PORT:-8081}:8080"
+    networks:
+      - control-plane
+      - data-plane
+    depends_on:
+      keycloak:
+        condition: service_started
+      opa:
+        condition: service_started
+      protected-app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  keycloak-data:
+
+networks:
+  control-plane:
+    driver: bridge
+  data-plane:
+    driver: bridge
+    internal: true
